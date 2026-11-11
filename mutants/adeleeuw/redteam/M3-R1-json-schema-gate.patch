@@ -1,0 +1,53 @@
+# Attack mutant M3 — targets R1
+# Written against commit 7901d1c on xinruil3/properties
+# (https://github.com/CMU-313/fall-26-opencode-seg-fault/tree/7901d1c)
+#
+# R1: toggling learning mode changes ONLY the learning-mode instruction
+# block in the request sent to the model. Everything else about the
+# request (model, tools, other system instructions, message history, etc.)
+# must be identical whether learning mode is on or off.
+#
+# Bug: adds a second condition to the check that decides whether to append
+# the learning-mode text block: it now also requires the request's response
+# format NOT be "json_schema" (structured output). The accompanying comment
+# ("don't distract the model from following the schema") is the kind of
+# plausible, well-intentioned justification a developer could type while
+# already editing this exact line, making it easy to miss in review. It
+# violates R1 because it makes a second, unrelated thing (response format)
+# also control whether the learning-mode block appears.
+#
+# Why it's a good candidate to slip past R1's current property: the
+# test's random-scenario generator never varies the message's response
+# format, so every generated test case defaults to { type: "text" } and
+# the request body never contains format.type === "json_schema". This
+# mutant's bug is gated on a dimension the generator never explores — the
+# same kind of blind spot as mutant H6 (MCP instructions) before the MCP
+# fixture was added, just on an untested dimension (response format)
+# instead of MCP servers.
+#
+# Apply with: git apply mutants/alex-redteam/M3-R1-json-schema-gate.patch
+# Revert with: git apply -R mutants/alex-redteam/M3-R1-json-schema-gate.patch
+
+diff --git a/packages/opencode/src/session/prompt.ts b/packages/opencode/src/session/prompt.ts
+index 097ed67..991a80c 100644
+--- a/packages/opencode/src/session/prompt.ts
++++ b/packages/opencode/src/session/prompt.ts
+@@ -1273,14 +1273,16 @@ const layer = Layer.effect(
+               MessageV2.toModelMessagesEffect(msgs, model),
+               config.get(),
+             ])
++            const format = lastUser.format ?? { type: "text" as const }
+             const system = [
+               ...env,
+               ...instructions,
+               ...(mcpInstructions ? [mcpInstructions] : []),
+               ...(skills ? [skills] : []),
+-              ...(cfg.learning_mode ? [PROMPT_LEARNING_MODE] : []),
++              // Skip the learning-mode preamble for structured-output requests so it
++              // can't distract the model from following the JSON schema.
++              ...(cfg.learning_mode && format.type !== "json_schema" ? [PROMPT_LEARNING_MODE] : []),
+             ]
+-            const format = lastUser.format ?? { type: "text" as const }
+             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
+             const result = yield* handle.process({
+               user: lastUser,

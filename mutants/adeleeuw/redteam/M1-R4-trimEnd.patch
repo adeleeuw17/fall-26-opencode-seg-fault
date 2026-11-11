@@ -1,0 +1,34 @@
+# Attack mutant M1 — targets R4
+# Written against commit 7901d1c on xinruil3/properties
+# (https://github.com/CMU-313/fall-26-opencode-seg-fault/tree/7901d1c)
+#
+# R4: the one-run environment override (OPENCODE_LEARNING_MODE) must be
+# recognized case-insensitively and regardless of surrounding whitespace
+# (e.g. " TRUE " still means true), never persisted to any file, and must
+# fall back to the config file on any unrecognized non-empty value.
+#
+# Bug: `.trim()` (strips both ends) is swapped for `.trimEnd()` (strips only
+# trailing whitespace). A real developer could make this swap while "fixing"
+# a report about trailing newlines from a shell script and simply not think
+# about leading whitespace. The result: a value with LEADING whitespace,
+# such as " TRUE " or "\n1", is no longer trimmed to "true"/"1", fails the
+# recognized-value check, and silently falls back to the config-file
+# setting instead of honoring the override — exactly the failure mode R4's
+# property is built to catch (its fixed example is literally " TRUE ").
+#
+# Apply with: git apply mutants/alex-redteam/M1-R4-trimEnd.patch
+# Revert with: git apply -R mutants/alex-redteam/M1-R4-trimEnd.patch
+
+diff --git a/packages/core/src/flag/flag.ts b/packages/core/src/flag/flag.ts
+index 54856e2..85d19ad 100644
+--- a/packages/core/src/flag/flag.ts
++++ b/packages/core/src/flag/flag.ts
+@@ -72,7 +72,7 @@ export const Flag = {
+   // Unlike boolean flags that only opt in, learning mode can be forced off as well as on.
+   // Unset or unrecognized values return undefined so the config file decides.
+   get OPENCODE_LEARNING_MODE() {
+-    const value = process.env["OPENCODE_LEARNING_MODE"]?.trim().toLowerCase()
++    const value = process.env["OPENCODE_LEARNING_MODE"]?.trimEnd().toLowerCase()
+     if (value === "true" || value === "1") return true
+     if (value === "false" || value === "0") return false
+     return undefined

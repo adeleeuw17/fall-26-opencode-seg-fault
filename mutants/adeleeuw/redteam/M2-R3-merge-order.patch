@@ -1,0 +1,54 @@
+# Attack mutant M2 — targets R3 (also touches R2)
+# Written against commit 7901d1c on xinruil3/properties
+# (https://github.com/CMU-313/fall-26-opencode-seg-fault/tree/7901d1c)
+#
+# R3: when the global config and the project config disagree on
+# learning_mode, the PROJECT setting decides (project overrides global).
+# R2 (related): moving a setting from project to global config changes
+# behavior only for projects that don't set it themselves.
+#
+# Bug: config.ts currently merges the global config file FIRST, then merges
+# each project config file afterward. Because `merge` lets whichever source
+# is applied LAST win on conflicting scalar fields, this ordering is what
+# makes "project wins" true today. This mutant reorders the two blocks so
+# the global config is merged LAST instead, flipping precedence: global now
+# wins every conflict, including learning_mode. It's written with an
+# innocent-sounding comment ("apply the default last so new projects
+# inherit it") — the kind of refactor a developer could make while
+# reorganizing this function, and one a reviewer skimming the diff might
+# accept at face value without tracing which source wins a merge.
+#
+# I'd expect R3's property to catch this immediately, since it directly
+# tests both conflict directions every run; it's included as a mutant
+# anyway because it's a single, plausible reordering with no type error,
+# which is exactly the shape of bug a quick code review could miss.
+#
+# Apply with: git apply mutants/alex-redteam/M2-R3-merge-order.patch
+# Revert with: git apply -R mutants/alex-redteam/M2-R3-merge-order.patch
+
+diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
+index 0315b0a..4e04512 100644
+--- a/packages/opencode/src/config/config.ts
++++ b/packages/opencode/src/config/config.ts
+@@ -395,9 +395,6 @@ const layer = Layer.effect(
+           }
+         }
+ 
+-        const global = Object.keys(authEnv).length ? yield* loadGlobal(authEnv) : yield* getGlobal()
+-        yield* merge(Global.Path.config, global, "global")
+-
+         if (Flag.OPENCODE_CONFIG) {
+           yield* merge(Flag.OPENCODE_CONFIG, yield* loadFile(Flag.OPENCODE_CONFIG, authEnv))
+           yield* Effect.logDebug("loaded custom config", { path: Flag.OPENCODE_CONFIG })
+@@ -409,6 +406,11 @@ const layer = Layer.effect(
+           }
+         }
+ 
++        // Apply the user-level default last so a freshly scaffolded project
++        // without its own opencode.json still inherits every global setting.
++        const global = Object.keys(authEnv).length ? yield* loadGlobal(authEnv) : yield* getGlobal()
++        yield* merge(Global.Path.config, global, "global")
++
+         result.agent = result.agent || {}
+         result.mode = result.mode || {}
+         result.plugin = result.plugin || []
